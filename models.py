@@ -1,9 +1,6 @@
-from peewee import *
 import datetime
-import sys, os
 
-if os.path.exists('busybody.sqlite'):
-	sys.exit('>> The busybody database is already initialized.\n>> Delete or move it to initialize a new copy.')
+from peewee import *
 
 
 db = SqliteDatabase('busybody.sqlite', threadlocals=True)
@@ -223,17 +220,3 @@ class UserModelScore(BaseModel):
 		default=datetime.datetime.now
 	)
 	update_dt = DateTimeField(default=None)
-
-
-db.connect()
-db.create_tables([
-	User, 
-	UserAddress, 
-	UserDemography, 
-	UserProfile,
-	UserTopic,
-	UserOrganization,
-	UserModelScore
-])
-
-print 'Created Tables'
