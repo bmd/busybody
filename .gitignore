@@ -12,6 +12,14 @@
 config.yaml
 
 # Package build files
-venv/
 build/
 dist/
+
+# Virtual Environment
+venv/
+
+# IDE files
+.idea/
+
+# Temporary
+tests/resources/
