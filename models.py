@@ -11,6 +11,9 @@ class BaseModel(Model):
 
 
 class User(BaseModel):
+    class Meta:
+        db_table = 'user'
+
     user_id = PrimaryKeyField()
     email = CharField(
         unique=True
@@ -33,6 +36,9 @@ class User(BaseModel):
 
 
 class UserAddress(BaseModel):
+    class Meta:
+        db_table = 'user_address'
+
     user_address_id = PrimaryKeyField()
     user = ForeignKeyField(
         User, related_name='addresses'
@@ -88,6 +94,9 @@ class UserAddress(BaseModel):
 
 
 class UserDemography(BaseModel):
+    class Meta:
+        db_table = 'user_demography'
+
     user_demography_id = PrimaryKeyField()
     user = ForeignKeyField(
         User, related_name='demographics'
@@ -113,6 +122,9 @@ class UserDemography(BaseModel):
 
 
 class UserProfile(BaseModel):
+    class Meta:
+        db_table = 'user_profile'
+
     user_profile_id = PrimaryKeyField()
     user = ForeignKeyField(
         User, related_name='profiles'
@@ -156,6 +168,9 @@ class UserProfile(BaseModel):
 
 
 class UserTopic(BaseModel):
+    class Meta:
+        db_table = 'user_topic'
+
     user_topic_id = PrimaryKeyField()
     user = ForeignKeyField(
         User, related_name='topics'
@@ -175,6 +190,9 @@ class UserTopic(BaseModel):
 
 
 class UserOrganization(BaseModel):
+    class Meta:
+        db_table = 'user_organization'
+
     user_organization_id = PrimaryKeyField()
     user = ForeignKeyField(
         User, related_name='organizations'
@@ -192,10 +210,10 @@ class UserOrganization(BaseModel):
         null=True, default=None, max_length=10
     )
     is_current = BooleanField(
-        null=True, default=None
+        null=True, default=None, index=True
     )
     is_primary = BooleanField(
-        null=True, default=None
+        null=True, default=None, index=True
     )
     create_dt = DateTimeField(
         default=datetime.datetime.now
@@ -206,6 +224,9 @@ class UserOrganization(BaseModel):
 
 
 class UserModelScore(BaseModel):
+    class Meta:
+        db_table = 'user_model_score'
+
     user_model_score_id = PrimaryKeyField()
     user = ForeignKeyField(
         User, related_name='scores'
