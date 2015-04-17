@@ -1,8 +1,8 @@
 import os
 import argparse
 
-from models import *
-from colors import Colors
+from busybody.models import *
+from busybody.colors import Colors
 
 
 if __name__ == '__main__':

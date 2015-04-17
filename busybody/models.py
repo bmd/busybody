@@ -105,13 +105,13 @@ class UserDemography(BaseModel):
         null=True, max_length=12, index=True
     )
     age = IntegerField(
-        index=True
+        null=True, index=True
     )
     age_range_min = IntegerField(
-        index=True
+        null=True, index=True
     )
     age_range_max = IntegerField(
-        index=True
+        null=True, index=True
     )
     create_dt = DateTimeField(
         default=datetime.datetime.now, index=True

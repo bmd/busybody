@@ -1,157 +1,74 @@
 import json
+import sys
 import yaml
 
+from busybody.colors import Colors
 import unicodecsv as csv
 from peewee import *
 from playhouse.csv_loader import dump_csv
 
-from models import *
-from busybody import BusyBody
-
-
-class SeekableDict(dict):
-    """
-    See if an arbitrarily deep key exists without commiting to the 
-    existance of any of its parent keys.
-
-    It's not quite like a defaultdict, but it's not quite not a 
-    defaultdict either.
-    """
-
-    def seek(d, *keys, **kwargs):
-        default = kwargs.get('default', None)
-        cur_key = d
-        try:
-            for k in keys:
-                cur_key = cur_key[k]
-            return cur_key
-        except KeyError:
-            return default
+from busybody.models import *
+from busybody.busybody import BusyBody, SeekableDict
 
 
 def parse_config_settings(config_file):
-    with open(config_file, 'r') as inf:
-        cfg = yaml.load(inf)
-
-    return cfg
-
-
-def digest_user_profiles(profiles_csv):
-    """ Return dict objects of lookup values for each user"""
-    with open(profiles_csv, 'r') as inf:
-        reader = csv.DictReader(inf)
-
-        profs = []
-        for row in reader:
-            if 'email' in row and row['email'] != '':
-                profs.append({'type': 'email', 'name': row['email']})
-            elif 'twitter' in row and row['twitter'] != '':
-                profs.append({'type': 'twitter', 'name': row['twitter'].replace('@', '')})
-            elif 'phone' in row and row['phone'] != '':
-                profs.append({'type': 'phone', 'name': row['phone']})
-
-    return profs
-
-
-def insert_user_data(d, email, user):
+    print Colors.BOLD + 'Reading configuration settings ...' + Colors.ENDC,
     try:
-        user_obj = User.create(
-            email=email,
-            first_name=user.seek('contactInfo', 'givenName'),
-            last_name=user.seek('contactInfo', 'familyName'),
-            match_likelihood=user.seek('likelihood')
-        )
+        with open(config_file, 'r') as inf:
+            cfg = yaml.load(inf)
+        print Colors.OKGREEN + 'SUCCESS'
+        return cfg
+    except IOError, e:
+        print Colors.FAIL + 'FAIL' + Colors.ENDC
+        print Colors.FAIL + '  ' + str(e) + Colors.ENDC
+        sys.exit(1)
 
-        UserAddress.create(
-            user=user_obj,
-            location_general=user.seek('demographics', 'locationGeneral'),
-            city_name=user.seek('demographics', 'locationDeduced', 'city', 'name'),
-            city_is_deduced=user.seek('demographics', 'locationDeduced', 'city', 'deduced'),
-            county_name=user.seek('demographics', 'locationDeduced', 'county', 'name'),
-            county_is_deduced=user.seek('demographics', 'locationDeduced', 'county', 'deduced'),
-            state_name=user.seek('demographics', 'locationDeduced', 'state', 'name'),
-            state_code=user.seek('demographics', 'locationDeduced', 'state', 'code'),
-            state_is_deduced=user.seek('demographics', 'locationDeduced', 'state', 'deduced'),
-            country_name=user.seek('demographics', 'locationDeduced', 'country', 'name'),
-            country_code=user.seek('demographics', 'locationDeduced', 'country', 'code'),
-            country_is_deduced=user.seek('demographics', 'locationDeduced', 'country', 'deduced'),
-            continent_name=user.seek('demographics', 'locationDeduced', 'continent', 'name'),
-            continent_is_deduced=user.seek('demographics', 'locationDeduced', 'continent', 'deduced'),
-            address_likelihood=user.seek('demographics', 'locationDeduced', 'likelihood')
-        )
 
-        base_age_range = str(user.seek('demographics', 'ageRange'))
-        if base_age_range:
-            age_min, age_max = base_age_range.split('-')
-        else:
-            age_min, age_max = None, None
+def get_user_emails(profiles_csv):
+    print Colors.BOLD + 'Reading emails for lookup ...' + Colors.ENDC,
 
-        UserDemography.create(
-            user=user_obj,
-            gender=user.seek('demographics', 'gender'),
-            age=user.seek('demographics', 'age'),
-            age_range_min=age_min,
-            age_range_max=age_max
-        )
+    try:
+        with open(profiles_csv, 'r') as inf:
+            reader = csv.DictReader(inf)
+            profs = [{'email': row['email']} for row in reader]
+        print Colors.OKGREEN + 'SUCCESS' + Colors.ENDC
+        print '  Got {} addresses to look up'.format(len(profs))
+        return profs
 
-        for org in user['organizations']:
-            UserOrganization.create(
-                user=user_obj,
-                organization_name=org.get('name', ''),
-                title=org.get('title', ''),
-                start_date=org.get('startDate', None),
-                end_date=org.get('endDate', None),
-                is_current=org.get('current', 0),
-                is_primary=org.get('isPrimary', 0)
-            )
-
-        for topic in user.seek('digitalFootprint', 'topics', default=list()):
-            UserTopic.create(
-                user=user_obj,
-                provider=topic.get('provider', ''),
-                topic=topic.get('value', None)
-            )
-
-        for score in user.seek('digitalFootprint', 'scores', default=list()):
-            UserModelScore.create(
-                user=user_obj,
-                provider=score.get('provider', ''),
-                type=score.get('general', ''),
-                score_value=score.get('value', None)
-            )
-
-        for web in user.seek('contactInfo', 'websites', default=list()):
-            UserProfile.create(
-                user=user_obj,
-                profile_type='website',
-                network_id='website',
-                network_name='website',
-                profile_url=web.get('url', None)
-            )
-
-        for profile in user.seek('socialProfiles', default=list()):
-            profile = SeekableDict(profile)
-            UserProfile.create(
-                user=user_obj,
-                profile_type='social',
-                network_id=profile.seek('typeId'),
-                network_name=profile.seek('typeName'),
-                profile_id=profile.seek('id'),
-                profile_url=profile.seek('url'),
-                user_name=profile.seek('username'),
-                user_bio=profile.seek('bio'),
-                followers=profile.seek('followers'),
-                following=profile.seek('following'),
-                user_feed=profile.seek('rss')
-            )
-
-    except IntegrityError as e:
-        print 'Error inserting user record :: "%s"' % e
+    except (IOError, KeyError) as e:
+        print Colors.FAIL + 'FAILED' + Colors.ENDC
+        print '  ' + Colors.FAIL + str(e) + Colors.ENDC
+        sys.exit(1)
 
 
 if __name__ == '__main__':
+    # get app configuration
     cfg = parse_config_settings('config.yaml')
-    profiles = digest_user_profiles('bloggers.csv')
+
+    # read in profiles to search
+    emails = get_user_emails('emails.txt')
+
+    # initialize busybody instance
+    bb = BusyBody(db, cfg['fc_api_key'])
+
+    # look up users
+    for email in emails:
+        bb.look_up_user(email['email'])
+
+
+
+    # clean up
+    bb.dump_failed_queue('failures.csv')
+    #bb.execute_queued_retries()
+    bb.dump_retry_queue('retries.csv')
+
+    sys.exit()
+
+    # export successes
+    bb.export_matched_users('user_profiles.csv')
+
+    sys.exit()
+
     with open('bart.json', 'r') as inf:
         users = [SeekableDict(user) for user in json.loads(inf.read())]
 
@@ -194,5 +111,4 @@ if __name__ == '__main__':
 
     )
 
-    with open('account-export.csv', 'w') as fh:
-        dump_csv(query, fh)
+
