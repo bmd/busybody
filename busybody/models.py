@@ -246,3 +246,35 @@ class UserModelScore(BaseModel):
     update_dt = DateTimeField(
         null=True, default=None
     )
+
+
+class FailureLog(BaseModel):
+    class Meta:
+        db_table = 'failure_log'
+
+    failure_log_id = PrimaryKeyField()
+    email = CharField(
+        null=False, index=True, max_length=255
+    )
+    initial_status = IntegerField(
+        index=True
+    )
+    message = TextField()
+    request_id = CharField(
+        max_length=255
+    )
+    create_dt = DateTimeField(
+        default=datetime.datetime.now, index=True
+    )
+    most_recent_retry_dt = DateTimeField(
+        null=True, default=None
+    )
+    most_recent_retry_status = IntegerField(
+        null=True, default=None, index=True
+    )
+    retry_count = IntegerField(
+        default=0
+    )
+    retry_complete = BooleanField(
+        default=False, index=True
+    )

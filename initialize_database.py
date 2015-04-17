@@ -33,7 +33,8 @@ if __name__ == '__main__':
             UserProfile,
             UserTopic,
             UserOrganization,
-            UserModelScore
+            UserModelScore,
+            FailureLog
         ])
         print Colors.OKGREEN + '    SUCCESS: ' + Colors.ENDC + 'Initialized busybody database'
         print Colors.OKGREEN + 'DONE\n' + Colors.ENDC
