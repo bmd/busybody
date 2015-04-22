@@ -1,8 +1,7 @@
 import tortilla
-import unicodecsv as csv
-import json
-from peewee import *
 from playhouse.csv_loader import dump_csv
+from playhouse.shortcuts import model_to_dict
+
 from models import *
 from colors import Colors
 
@@ -16,13 +15,16 @@ class SeekableDict(dict):
     defaultdict either.
     """
 
+    @staticmethod
     def seek(d, *keys, **kwargs):
         default = kwargs.get('default', None)
         cur_key = d
+
         try:
             for k in keys:
                 cur_key = cur_key[k]
             return cur_key
+
         except KeyError:
             return default
 
@@ -37,37 +39,118 @@ class BusyBody(object):
         403: 'FORBIDDEN',
         404: 'NOT FOUND',
         405: 'METHOD NOT ALLOWED',
-        410: 'GONE - ENDPOINT DEPRECATED',
-        422: 'INVALID',
+        410: 'GONE (ENDPOINT DEPRECATED)',
+        422: 'INVALID REQUEST',
         500: 'SERVER ERROR'
     }
 
-    def __init__(self, db, fc_key, debug_setting=False, style='dictionary'):
-        self.conn = db
+    def __init__(self, fc_key, debug_setting=False, style='dictionary'):
         self.fullcontact = fc_key
         self.api = tortilla.wrap('https://api.fullcontact.com/v2', debug=debug_setting, delay=1, extension='json')
-        self.retries = []
-        self.failures = []
         self.style = style
         self.debugging = debug_setting
 
-    def requeue(self, user, response):
-        self.retry_queue.append({'user': user, 'returned_status': response['status']})
+    def _log_failure(self, result, email):
+        FailureLog.create(
+            email=email,
+            initial_status=result.status,
+            message=result.message,
+            request_id=result.requestId,
+            retry_complete=(result.status not in [202, 403, 500, 400, 422])
+        )
+        return True
 
-    def dump_queued_retries(self, path):
-        with open(path, 'w') as outf:
-            writer = csv.writer(outf)
-            writer.writerow(['email', 'requeue_reason'])
-            writer.writerows([[user['email'], user['returned_status']] for user in self.retries])
+    def _update_failure_log(self, current_row_obj, new_result):
+        # update the failure row to flag if our result has succeeded
+        fq = (FailureLog
+            .update(
+                most_recent_retry_status=new_result.status,
+                retry_count=FailureLog.retry_count + 1,
+                retry_complete=(new_result.status not in [202, 403, 500, 400, 422]),
+                most_recent_retry_dt=datetime.datetime.now()
+            )
+            .where(
+                FailureLog.request_id == current_row_obj['request_id']
+            )
+        )
+        fq.execute()
 
-    def dump_failed_queue(self, path):
-        with open(path, 'w') as outf:
-            writer = csv.writer(outf)
-            writer.writerow(['email', 'fail_reason'])
-            writer.writerows([[user['email'], user['returned_status']] for user in self.failures])
+        # get the updated row
+        return FailureLog.select().where(FailureLog.request_id == current_row_obj['request_id'])
 
-    def execute_queued_retries(self):
-        pass
+    # TODO
+    def retry_failures(self):
+        """ Get a list of emails that still need to be retried and query the FullContact API """
+        users_to_retry = self._get_remaining_retries()
+
+        # just return if we have nothing to retry!
+        if len(users_to_retry) == 0:
+            return False
+
+        # lookup users who need to be retried
+        user_lookups = []
+        for user in users_to_retry:
+            lookup = self.look_up_user(user['email'])
+            user_lookups.append(model_to_dict(lookup))
+
+        return user_lookups
+
+    def _get_remaining_retries(self):
+        """
+        Return all rows from the failure_log table that still need to be retried
+        """
+        query = (FailureLog
+            .select()
+            .where(
+                (
+                    # specific codes that indicate we need to retry
+                    #   - 202: explicit retry call
+                    #   - 403: rate limit or auth rejection
+                    #   - 500: server error, not our fault
+                    (FailureLog.initial_status == 202) |
+                    (FailureLog.initial_status == 403) |
+                    (FailureLog.initial_status == 500)
+                )
+                # a retry can complete without succeeding (i.e. if  we go from 202 -> 404)
+                & (FailureLog.retry_complete == 0)
+            )
+        )
+        return [model_to_dict(result) for result in query]
+
+    def look_up_user(self, user_email, is_retry=False):
+        """ Query the FullContact API for a single user """
+
+        response = self.api.person.get(silent=True, params={
+            'email': user_email,
+            'apiKey': self.fullcontact,
+            'style': self.style
+        })
+
+        if response.status == 200:
+            print Colors.OKGREEN + '  200 OK: ' + Colors.ENDC + 'lookup successful for ' + user_email
+            print '    Inserting results into database ...',
+            try:
+                self.insert_user_rows(user_email, SeekableDict(response))
+                print Colors.OKGREEN + 'SUCCESS' + Colors.ENDC
+            except IntegrityError as e:
+                print Colors.FAIL + 'FAILED'
+                print '      Error inserting user record: "{}"'.format(e) + Colors.ENDC
+
+        elif response.status == 202:
+            print Colors.WARNING + '  202 ACCEPTED: ' + Colors.ENDC + 'will need to retry lookup for ' + user_email
+
+        elif response.status == 403:
+            print Colors.WARNING + '  403 RATE LIMITED: ' + Colors.ENDC + 'either sending too many requests per second or exceeded quota'
+
+        else:
+            print Colors.FAIL + '  ' + str(response.status) + ' ' + self.status_map[response.status] + ': ' + Colors.ENDC + 'failed to return a result for ' + user_email
+
+        if is_retry:
+            self._update_failure_log(cur_id, response)
+        elif response.status != 200:
+            self._log_failure(response, user_email)
+
+        return response
 
     def insert_user_rows(self, email, user):
         user_obj = User.create(
@@ -170,39 +253,59 @@ class BusyBody(object):
                 user_feed=profile.seek('rss')
             )
 
-    def look_up_user(self, user_email):
-        """ Query the FullContact API for a single user """
+    def dump_failure_table(self, outf_path):
+        with open(outf_path, 'w') as outf:
+            dump_csv(FailureLog.select(), outf)
 
-        response = self.api.person.get(silent=True, params={
-            'email': user_email,
-            'apiKey': self.fullcontact,
-            'style': self.style
-        })
+    def export_user_data(self, outf_path):
+        FacebookProfile = (UserProfile
+            .select(UserProfile)
+            .where(UserProfile.network_name == 'Facebook')
+            .alias('FacebookProfile')
+        )
 
-        if response.status == 200:
-            print Colors.OKGREEN + '  200 OK: ' + Colors.ENDC + 'lookup successful for ' + user_email
-            print '    Inserting results into database ...',
-            try:
-                self.insert_user_rows(user_email, SeekableDict(response))
-                print Colors.OKGREEN + 'SUCCESS' + Colors.ENDC
-            except IntegrityError as e:
-                print Colors.FAIL + 'FAILED'
-                print '      Error inserting user record: "{}"'.format(e) + Colors.ENDC
+        TwitterProfile = (UserProfile
+            .select(UserProfile)
+            .where(UserProfile.network_name == 'Twitter')
+            .alias('TwitterProfile')
+        )
 
-        elif response.status == 202:
-            print Colors.WARNING + '  202 ACCEPTED: ' + Colors.ENDC + 'will need to retry lookup for ' + user_email
-            self.retries.append(user_email)
+        Website = (UserProfile
+            .select(UserProfile)
+            .where(UserProfile.network_name == 'Web')
+            .alias('Website')
+        )
 
-        elif response['status'] == 403:
-            print Colors.WARNING + '  403 RATE LIMITED: ' + Colors.ENDC + 'either sending too many requests per second or exceeded quota'
-            self.retries.append(user_email)
+        query = (User
+            .select(
+                User.user_id.alias('user_id'),
+                User.first_name.alias('first_name'),
+                User.last_name.alias('last_name'),
+                User.email.alias('email'),
+                UserAddress.location_general.alias('location'),
+                UserDemography.age.alias('age'),
+                UserDemography.age_range_min.alias('age_range_min'),
+                UserDemography.age_range_max.alias('age_range_max'),
+                UserModelScore.score_value.alias('klout_score'),
+                FacebookProfile.c.profile_id.alias('facebook_id'),
+                FacebookProfile.c.user_name.alias('facebook_username'),
+                FacebookProfile.c.profile_url.alias('facebook_profile'),
+                TwitterProfile.c.profile_id.alias('twitter_id'),
+                TwitterProfile.c.user_name.alias('twitter_screen_name'),
+                TwitterProfile.c.followers.alias('twitter_followers'),
+                TwitterProfile.c.following.alias('twitter_following'),
+                Website.c.profile_url.alias('website'),
+                User.create_dt.alias('scraped_on')
+            )
+            .join(UserAddress, JOIN.LEFT_OUTER).switch(User)
+            .join(UserModelScore, JOIN.LEFT_OUTER).switch(User)
+            .join(UserDemography, JOIN.LEFT_OUTER).switch(User)
+            .join(UserTopic, JOIN.LEFT_OUTER).switch(User)
+            .join(FacebookProfile, JOIN.LEFT_OUTER, on=(User.user_id==FacebookProfile.c.user_id)).switch(User)
+            .join(TwitterProfile, JOIN.LEFT_OUTER, on=(User.user_id==TwitterProfile.c.user_id)).switch(User)
+            .join(Website, JOIN.LEFT_OUTER, on=(User.user_id==Website.c.user_id))
+            .group_by(User)
+        )
 
-        else:
-            print Colors.FAIL + '  ' + str(response['status']) + ' FAILURE: ' + Colors.ENDC + 'failed to return a result for ' + user_email
-            self.failures.append(user_email)
-
-        return True
-
-    def export_matched_users(self, query, outf_path):
         with open(outf_path, 'w') as outf:
             dump_csv(query, outf)
