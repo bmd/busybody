@@ -1,8 +1,25 @@
+import logging
 import os
 import argparse
 
-from busybody.models import *
-from busybody.colors import Colors
+from busybody import Colors
+from busybody.database.models import *
+
+# configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    filename='logs/testing.log',
+    filemode='a'
+)
+
+console = logging.StreamHandler()
+console.setLevel(logging.DEBUG)
+console.setFormatter(logging.Formatter('%(asctime)s %(name)-12s %(levelname)-8s %(message)s', datefmt='%Y-%m-%d %H:%M:%S'))
+
+logger = logging.getLogger(__name__)
+logger.addHandler(console)
 
 
 if __name__ == '__main__':
@@ -12,19 +29,19 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # check whether we can safely configure the database
-    print Colors.BOLD + '\nConfiguring BusyBody database...' + Colors.ENDC
-    print Colors.OKBLUE + '  Checking for existing database...' + Colors.ENDC
+    logger.info('Configuring BusyBody database...')
 
     # execute database setup
     if os.path.exists('busybody.sqlite') and not args.force:
-        print Colors.FAIL + '    FAILURE: ' + Colors.ENDC + 'The busybody database is already initialized. Run this script with -f to force database setup'
-        print Colors.FAIL + 'FAILED\n' + Colors.ENDC
+        logger.error(Colors.FAIL + 'FAILURE: The busybody database is already initialized. Run this script with -f to force database setup' + Colors.ENDC)
     else:
         if os.path.exists('busybody.sqlite'):
-            print Colors.WARNING + '    WARNING: ' + Colors.ENDC + 'An existing busybody database will be overwritten'
+            logger.warn(Colors.WARNING + 'WARNING: An existing busybody database will be overwritten' + Colors.ENDC)
             os.remove('busybody.sqlite')
 
-        print '  Creating busybody database'
+        db = SqliteDatabase('busybody.sqlite', threadlocals=True)
+        db_proxy.initialize(db)
+        logger.info('Creating busybody database')
         db.connect()
         db.create_tables([
             User,
@@ -36,5 +53,4 @@ if __name__ == '__main__':
             UserModelScore,
             FailureLog
         ])
-        print Colors.OKGREEN + '    SUCCESS: ' + Colors.ENDC + 'Initialized busybody database'
-        print Colors.OKGREEN + 'DONE\n' + Colors.ENDC
+        logger.info(Colors.OKGREEN + 'SUCCESS: Initialized busybody database' + Colors.ENDC)
