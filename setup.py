@@ -11,7 +11,7 @@ with open('README.md', 'r') as inf:
 
 setup(
     name='busybody',
-    version='0.0.1',
+    version='0.0.2',
     description='Tools for managing and enriching user data with the FullContact API',
     long_description=long_description,
     url='https://github.com/bmd/busybody',
@@ -22,7 +22,12 @@ setup(
     zip_safe=False,
     platforms='any',
     include_package_data=True,
-    install_requires=['tortilla', 'peewee', 'unicodecsv', 'pyyaml'],
+    install_requires=[
+        'tortilla',
+        'peewee',
+        'unicodecsv',
+        'pyyaml'
+    ],
     tests_require=['nose>=1.0'],
     test_suite='nose.collector',
     classifiers=[
