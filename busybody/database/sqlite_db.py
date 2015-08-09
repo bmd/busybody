@@ -1,4 +1,6 @@
 import logging
+from playhouse.csv_loader import dump_csv
+from playhouse.shortcuts import model_to_dict
 
 from db_interface import AbstractDatabaseConnector
 from models import *
@@ -152,3 +154,58 @@ class SqliteConnector(AbstractDatabaseConnector):
             request_id=failure_response.requestId,
             retry_complete=(failure_response.status not in [202, 403, 500, 400, 422])
         )
+
+    def fetch_retry_queue(self):
+        """
+        Return all rows from the failure_log table that still need to be retried
+        """
+        query = (FailureLog
+            .select()
+            .where(
+                (
+                    # specific codes that indicate we need to retry
+                    #   - 202: explicit retry call
+                    #   - 403: rate limit or auth rejection
+                    #   - 500: server error, not our fault
+                    (FailureLog.initial_status == 202) |
+                    (FailureLog.initial_status == 403) |
+                    (FailureLog.initial_status == 500)
+                )
+                # a retry can complete without succeeding (i.e. if  we go from 202 -> 404)
+                & (FailureLog.retry_complete == 0)
+            )
+        )
+        return [model_to_dict(result) for result in query]
+
+    def dump_failures(self, outf_path, include_completed=False):
+        """ Dump a CSV of failures to the specified location
+
+        @param outf_path: Path of output file
+        @param include_completed: Whether to include completed retries
+        @return: None
+        """
+        if include_completed:
+            q = FailureLog.select()
+        else:
+            q = FailureLog.select().where(FailureLog.retry_complete == 0)
+
+        with open(outf_path, 'w') as outf:
+            dump_csv(q, outf)
+
+    def update_retry_row(self, current_row_obj, new_result):
+        # update the failure row to flag if our result has succeeded
+        fq = (FailureLog
+            .update(
+                most_recent_retry_status=new_result.status,
+                retry_count=FailureLog.retry_count + 1,
+                retry_complete=(new_result.status not in [202, 403, 500, 400, 422]),
+                most_recent_retry_dt=datetime.datetime.now()
+            )
+            .where(
+                FailureLog.request_id == current_row_obj['request_id']
+            )
+        )
+        fq.execute()
+
+        # get the updated row
+        return FailureLog.select().where(FailureLog.request_id == current_row_obj['request_id'])
