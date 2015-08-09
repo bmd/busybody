@@ -24,3 +24,9 @@ venv/
 # Temporary
 tests/resources/
 emails.txt
+
+dict_style_fc_response.json
+
+*.log
+
+bart.json

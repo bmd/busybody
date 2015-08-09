@@ -2,15 +2,17 @@ import datetime
 
 from peewee import *
 
-db = SqliteDatabase('busybody.sqlite', threadlocals=True)
-
+# initialize as a proxy object so that we can define the database at runtime
+db_proxy = Proxy()
 
 class BaseModel(Model):
     class Meta:
-        database = db
+        database = db_proxy
 
 
 class User(BaseModel):
+    """ Model for the 'user' table """
+
     class Meta:
         db_table = 'user'
 
@@ -36,6 +38,8 @@ class User(BaseModel):
 
 
 class UserAddress(BaseModel):
+    """ Model for the 'user_address' table """
+
     class Meta:
         db_table = 'user_address'
 
@@ -94,6 +98,8 @@ class UserAddress(BaseModel):
 
 
 class UserDemography(BaseModel):
+    """ Model for the 'user_demography' table """
+
     class Meta:
         db_table = 'user_demography'
 
@@ -122,6 +128,8 @@ class UserDemography(BaseModel):
 
 
 class UserProfile(BaseModel):
+    """ Model for the 'user_profile' table """
+
     class Meta:
         db_table = 'user_profile'
 
@@ -168,6 +176,8 @@ class UserProfile(BaseModel):
 
 
 class UserTopic(BaseModel):
+    """ Model for the 'user_topic' table """
+
     class Meta:
         db_table = 'user_topic'
 
@@ -190,6 +200,8 @@ class UserTopic(BaseModel):
 
 
 class UserOrganization(BaseModel):
+    """ Model for the 'user_organization' table """
+
     class Meta:
         db_table = 'user_organization'
 
@@ -224,6 +236,8 @@ class UserOrganization(BaseModel):
 
 
 class UserModelScore(BaseModel):
+    """ Model for the user_model_score table """
+
     class Meta:
         db_table = 'user_model_score'
 
@@ -249,6 +263,8 @@ class UserModelScore(BaseModel):
 
 
 class FailureLog(BaseModel):
+    """ Model for the 'failure_log' table """
+
     class Meta:
         db_table = 'failure_log'
 
