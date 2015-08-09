@@ -1,5 +1,33 @@
+import logging
 import re
+import sys
 import unicodecsv as csv
+import yaml
+
+from colors import Colors
+
+logger = logging.getLogger(__name__)
+
+
+class YamlConfigParser:
+
+    @staticmethod
+    def read_config(fname):
+        """ Read a configuration file and return a dict of settings.
+
+        @param fname: Path to config file
+        @return: dict
+        """
+        logger.info('Reading configuration settings from {}'.format(fname))
+        try:
+            with open(fname, 'r') as inf:
+                cfg = yaml.load(inf)
+            logger.debug(Colors.OKGREEN + '  Successfully read config file' + Colors.ENDC)
+            return cfg
+        except IOError, e:
+            logger.error(Colors.FAIL + '  Could not read config file' + Colors.ENDC)
+            logger.error(Colors.FAIL + '  ' + str(e) + Colors.ENDC)
+            sys.exit(1)
 
 
 class EmailParser:
